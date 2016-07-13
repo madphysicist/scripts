@@ -67,7 +67,7 @@ do
         git cherry-pick "${COMMIT}"
         echo "Removing ${COMMIT} from ${FROM}"
         # TODO: It might be better to rebase from a list of commits once they have all been picked if the TODO above gets implemented
-        EDITOR="sed -i '/^pick $(git rev-parse --short ${COMMIT})/ d'" git rebase -i "${TO}" "${FROM}"
+        EDITOR="sed -i '/^pick $(git rev-parse --short ${COMMIT})/ d'" git rebase -i "${TO}" "$(git merge-base "${TO}" "${FROM}")"
     done
     shift
 done
