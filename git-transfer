@@ -1,0 +1,79 @@
+#!/bin/bash
+
+#
+# Transfers a commit or selection of commits from one branch to another.
+#
+# Place this script in your PATH to invoke as "git transfer". The calling
+# syntax is "git transfer from-branch to-branch commit [...]". The first
+# two args are required and must be valid branch names. The remainder may
+# be anything that resolves to a commit or a range of commits. Double- and
+# triple-dot ranges are parsed as they would be by git-log or git-rev-list.
+#
+# Commits are cherry-picked on top of to-branch and removed from from-branch
+# via a rebase.
+#
+# Caveat:
+#
+# This script is intended for only a small number of commits. It rebases
+# from-branch after every cherry-pick to to-branch. It also does not check
+# if a commit is in fact accessible from either branch, which can be an
+# advantage in certain situations (e.g. if you need to replay a previous
+# commit from to-branch along the way, no questions asked.)
+#
+# TODOs:
+#
+# - Although not mandatory, a warning should be printed for commits that are
+#   not actually in from-branch. The commits will still be cherry-picked, but
+#   they will not be removed.
+# - The current strategy is to rebase from-branch onto itself minus the
+#   cherry picked commit every time a transfer is made. This is slow and
+#   unnecessary. The transferred commits should be added to an array or
+#   written to a temp file, then filtered out of the rebase all at once.
+#
+
+usage() {
+    echo "Usage: git transfer from-branch to-branch commits [...]"
+    if [ -n "${1}" ]
+    then
+        echo
+        for line; do echo "${line}"; done
+    fi
+    exit 1
+}
+
+FROM="$(git rev-parse --abbrev-ref "${1}")"
+[ -z "${FROM}" ] && usage 'from-branch must be a valid branch name' || shift
+TO="$(git rev-parse --abbrev-ref "${1}")"
+[ -z "${TO}" ] && usage 'to-branch must be a valid branch name' || shift
+
+ORIGINAL="$(git rev-parse --abbrev-ref HEAD)"
+
+if [ "${ORIGINAL}" == "${TO}" ]
+then
+    echo "Already on branch ${TO}"
+else
+    echo "Switching from ${ORIGINAL} to ${TO}"
+    git checkout "${TO}" || exit
+fi
+
+while [ $# -gt 0 ]
+do
+    [[ "${1}" == *..* ]] && GIT_CMD='rev-list --reverse' || GIT_CMD=rev-parse
+
+    for COMMIT in $(git ${GIT_CMD} "${1}" | grep '^[^^]')
+    do
+        # TODO: Better check that commit is accessible from one branch and not the other before moving it. Allow move regardless, but print a warning or something.
+        echo "Moving ${COMMIT} to ${TO}"
+        git cherry-pick "${COMMIT}"
+        echo "Removing ${COMMIT} from ${FROM}"
+        # TODO: It might be better to rebase from a list of commits once they have all been picked if the TODO above gets implemented
+        EDITOR="sed -i '/^pick $(git rev-parse --short ${COMMIT})/ d'" git rebase -i "${TO}" "${FROM}"
+    done
+    shift
+done
+
+if [ "${ORIGINAL}" != "${TO}" ]
+then
+    echo "Switching back to ${ORIGINAL} from ${TO}"
+    git checkout "${ORIGINAL}"
+fi
